@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">Simple Dice Cast</string>
+
+    <!-- Configurations -->
+    <string name="cast_app_id">9EE9C969</string>
+    <string name="cast_namespace">urn:x-cast:com.fbvictorhugo.simpledicecast.cast</string>
+
+    <!-- Strings -->
+    <string name="title_about">Sobre</string>
+    <string name="action_about">Sobre</string>
+    <string name="action_media_route">Cast</string>
+    <string name="text_about_app">Aplicativo desenvolvido como exemplo para apresenção sobre Chromecast, abordando conceitos básicos. Código fonte disponível em: https://github.com/fbvictorhugo/simpledice-cast</string>
+    <string name="text_about_code">Codigo fonte modificado apartir do exemplo disponível: https://github.com/googlecast/CastHelloText-android .</string>
+    <string name="text_about_images">Imagens do dados por Alex Fuller em http://thenounproject.com/alexfuller .</string>
+
+    <!-- Message -->
+    <string name="msg_error">I\'m sorry Dave, I\'m afraid I can\'t do that</string>
+    <string name="msg_tap_the_dice">Toque no dado para rolar</string>
+    <string name="msg_roll_the_dice">Role o dado!</string>
+
+</resources>
