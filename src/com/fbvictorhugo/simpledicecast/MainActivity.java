@@ -43,14 +43,12 @@ public class MainActivity extends ActionBarActivity {
 	private MediaRouteSelector mMediaRouteSelector;
 	private MediaRouter.Callback mMediaRouterCallback;
 	private CastDevice mSelectedDevice;
-	private GoogleApiClient mApiClient;
+	private GoogleApiClient mGoogleApiClient;
 	private Cast.Listener mCastListener;
-	private boolean mApplicationStarted;
+	private boolean wasLaunched;
 	private boolean mWaitingForReconnect;
 	private String mSessionId;
-	private ConnectionCallbacks mConnectionCallbacks;
-	private ConnectionFailedListener mConnectionFailedListener;
-	private MyMessageChannel mHelloWorldChannel;
+	private MyMessageReceivedCallback mMyMessageReceivedCallbacks;
 
 	ImageView ivDiceFace;
 
@@ -60,7 +58,7 @@ public class MainActivity extends ActionBarActivity {
 		setContentView(R.layout.activity_main);
 
 		configureViews();
-		configureDeviceDiscovery();
+		initializeMediaRouter();
 		configureListenerViews();
 
 		Toast.makeText(this, R.string.msg_tap_the_dice, Toast.LENGTH_LONG)
@@ -100,6 +98,8 @@ public class MainActivity extends ActionBarActivity {
 				default:
 					break;
 				}
+				// Flow 10 - Sender sends a message to the receiver over the
+				// communication channe
 				sendMessage(String.valueOf(sorted));
 			}
 		});
@@ -133,6 +133,7 @@ public class MainActivity extends ActionBarActivity {
 	@Override
 	protected void onResume() {
 		super.onResume();
+		// Flow 1 - Sender app starts MediaRouter device discovery
 		startMediaRouterDiscovery();
 	}
 
@@ -146,28 +147,28 @@ public class MainActivity extends ActionBarActivity {
 
 	@Override
 	public void onDestroy() {
-		teardown();
+		tearDown();
 		super.onDestroy();
 	}
 
 	/* Cast Configurations */
 
-	private void configureDeviceDiscovery() {
+	private void initializeMediaRouter() {
 		mMediaRouter = MediaRouter.getInstance(getApplicationContext());
 		mMediaRouteSelector = new MediaRouteSelector.Builder()
 				.addControlCategory(
 						CastMediaControlIntent.categoryForCast(getResources()
 								.getString(R.string.cast_app_id))).build();
+		// Flow 2 - MediaRouter informs sender app of the route the user
+		// selected
 		mMediaRouterCallback = new MyMediaRouterCallback();
 	}
 
-	// Start media router discovery
 	private void startMediaRouterDiscovery() {
 		mMediaRouter.addCallback(mMediaRouteSelector, mMediaRouterCallback,
 				MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN);
 	}
 
-	// End media router discovery
 	private void endMediaRouterDiscovery() {
 		mMediaRouter.removeCallback(mMediaRouterCallback);
 	}
@@ -179,61 +180,61 @@ public class MainActivity extends ActionBarActivity {
 				@Override
 				public void onApplicationDisconnected(int errorCode) {
 					Log.d(CLASS_TAG, "application has stopped");
-					teardown();
+					tearDown();
 				}
 
 			};
 			// Connect to Google Play services
-			mConnectionCallbacks = new ConnectionCallbacks();
-			mConnectionFailedListener = new ConnectionFailedListener();
 			Cast.CastOptions.Builder apiOptionsBuilder = Cast.CastOptions
 					.builder(mSelectedDevice, mCastListener);
-			mApiClient = new GoogleApiClient.Builder(this)
+			// Flow 4 - Sender app creates a GoogleApiClient
+			mGoogleApiClient = new GoogleApiClient.Builder(this)
 					.addApi(Cast.API, apiOptionsBuilder.build())
-					.addConnectionCallbacks(mConnectionCallbacks)
-					.addOnConnectionFailedListener(mConnectionFailedListener)
-					.build();
+					// Flow 5 - Sender app connects the GoogleApiClient
+					.addConnectionCallbacks(new GooglePlayConnectionCallbacks())
+					.addOnConnectionFailedListener(
+							new GooglePlayConnectionFailedListener()).build();
 
-			mApiClient.connect();
+			mGoogleApiClient.connect();
 		} catch (Exception e) {
 			Log.e(CLASS_TAG, "Failed launchReceiver", e);
 		}
 	}
 
 	// Tear down the connection to the receiver
-	private void teardown() {
+	private void tearDown() {
 		Log.d(CLASS_TAG, "teardown");
-		if (mApiClient != null) {
-			if (mApplicationStarted) {
-				if (mApiClient.isConnected()) {
+		if (mGoogleApiClient != null) {
+			if (wasLaunched) {
+				if (mGoogleApiClient.isConnected()) {
 					try {
-						Cast.CastApi.stopApplication(mApiClient, mSessionId);
-						if (mHelloWorldChannel != null) {
+						Cast.CastApi.stopApplication(mGoogleApiClient,
+								mSessionId);
+						if (mMyMessageReceivedCallbacks != null) {
 							Cast.CastApi.removeMessageReceivedCallbacks(
-									mApiClient,
-									mHelloWorldChannel.getNamespace());
-							mHelloWorldChannel = null;
+									mGoogleApiClient,
+									mMyMessageReceivedCallbacks.getNamespace());
+							mMyMessageReceivedCallbacks = null;
 						}
 					} catch (IOException e) {
 						Log.e(CLASS_TAG, "Exception while removing channel", e);
 					}
-					mApiClient.disconnect();
+					mGoogleApiClient.disconnect();
 				}
-				mApplicationStarted = false;
+				wasLaunched = false;
 			}
-			mApiClient = null;
+			mGoogleApiClient = null;
 		}
 		mSelectedDevice = null;
 		mWaitingForReconnect = false;
 		mSessionId = null;
 	}
 
-	// Send a text message to the receiver
 	private void sendMessage(String message) {
-		if (mApiClient != null && mHelloWorldChannel != null) {
+		if (mGoogleApiClient != null && mMyMessageReceivedCallbacks != null) {
 			try {
-				Cast.CastApi.sendMessage(mApiClient,
-						mHelloWorldChannel.getNamespace(), message)
+				Cast.CastApi.sendMessage(mGoogleApiClient,
+						mMyMessageReceivedCallbacks.getNamespace(), message)
 						.setResultCallback(new ResultCallback<Status>() {
 							@Override
 							public void onResult(Status result) {
@@ -248,49 +249,43 @@ public class MainActivity extends ActionBarActivity {
 		}
 	}
 
-	// Callback for MediaRouter events
 	private class MyMediaRouterCallback extends MediaRouter.Callback {
 		@Override
 		public void onRouteSelected(MediaRouter router, RouteInfo route) {
+			// Flow 3 - Sender app retrieves CastDevice instance
 			mSelectedDevice = CastDevice.getFromBundle(route.getExtras());
 			launchReceiver();
 		}
 
 		@Override
 		public void onRouteUnselected(MediaRouter router, RouteInfo route) {
-
-			teardown();
+			tearDown();
 			mSelectedDevice = null;
 		}
 	}
 
-	// Custom message channel
-	class MyMessageChannel implements MessageReceivedCallback {
+	class MyMessageReceivedCallback implements MessageReceivedCallback {
 
-		/**
-		 * @return custom namespace
-		 */
 		public String getNamespace() {
 			return getString(R.string.cast_namespace);
 		}
 
-		/*
-		 * Receive message from the receiver app
-		 */
 		@Override
 		public void onMessageReceived(CastDevice castDevice, String namespace,
 				String message) {
-			Log.d(CLASS_TAG, "onMessageReceived: " + message);
+			Toast.makeText(getApplicationContext(),
+					castDevice.getFriendlyName() + ":" + message,
+					Toast.LENGTH_LONG).show();
 		}
 
 	}
 
-	// Google Play services callbacks
-	private class ConnectionCallbacks implements
+	private class GooglePlayConnectionCallbacks implements
 			GoogleApiClient.ConnectionCallbacks {
 
 		@Override
 		public void onConnected(Bundle connectionHint) {
+			// Flow 6 - SDK confirms that GoogleApiClient is connected
 			try {
 				if (mWaitingForReconnect) {
 					mWaitingForReconnect = false;
@@ -300,15 +295,15 @@ public class MainActivity extends ActionBarActivity {
 							&& connectionHint
 									.getBoolean(Cast.EXTRA_APP_NO_LONGER_RUNNING)) {
 						Log.d(CLASS_TAG, "App  is no longer running");
-						teardown();
+						tearDown();
 					} else {
 
 						// Re-create the custom message channel
 						try {
 							Cast.CastApi.setMessageReceivedCallbacks(
-									mApiClient,
-									mHelloWorldChannel.getNamespace(),
-									mHelloWorldChannel);
+									mGoogleApiClient,
+									mMyMessageReceivedCallbacks.getNamespace(),
+									mMyMessageReceivedCallbacks);
 						} catch (IOException e) {
 							Log.e(CLASS_TAG,
 									"Exception while creating channel", e);
@@ -316,9 +311,10 @@ public class MainActivity extends ActionBarActivity {
 					}
 
 				} else {
-					// Launch the receiver app
-					Cast.CastApi.launchApplication(mApiClient,
+					// Flow 7 - Sender app launches the receiver app
+					Cast.CastApi.launchApplication(mGoogleApiClient,
 							getString(R.string.cast_app_id), false)
+					// Flow 8 - SDK confirms that the receiver app is connected
 							.setResultCallback(castResultCallback);
 				}
 			} catch (Exception e) {
@@ -328,7 +324,6 @@ public class MainActivity extends ActionBarActivity {
 
 		@Override
 		public void onConnectionSuspended(int cause) {
-			Log.d(CLASS_TAG, "onConnectionSuspended");
 			mWaitingForReconnect = true;
 		}
 
@@ -346,31 +341,31 @@ public class MainActivity extends ActionBarActivity {
 			if (status.isSuccess()) {
 				mSessionId = result.getSessionId();
 
-				mApplicationStarted = true;
-				mHelloWorldChannel = new MyMessageChannel();
+				wasLaunched = result.getWasLaunched();
+				// Flow 9 - Sender app creates a communication channel:
+				mMyMessageReceivedCallbacks = new MyMessageReceivedCallback();
 
 				try {
-					Cast.CastApi.setMessageReceivedCallbacks(mApiClient,
-							mHelloWorldChannel.getNamespace(),
-							mHelloWorldChannel);
+					Cast.CastApi.setMessageReceivedCallbacks(mGoogleApiClient,
+							mMyMessageReceivedCallbacks.getNamespace(),
+							mMyMessageReceivedCallbacks);
 				} catch (IOException e) {
 					Log.e(CLASS_TAG, "Exception while creating channel", e);
 				}
 
 			} else {
 				Log.e(CLASS_TAG, "application could not launch");
-				teardown();
+				tearDown();
 			}
 		}
 	};
 
 	// Google Play services callbacks
-	private class ConnectionFailedListener implements
+	private class GooglePlayConnectionFailedListener implements
 			GoogleApiClient.OnConnectionFailedListener {
 		@Override
 		public void onConnectionFailed(ConnectionResult result) {
-			Log.e(CLASS_TAG, "onConnectionFailed ");
-			teardown();
+			tearDown();
 		}
 	}
 }

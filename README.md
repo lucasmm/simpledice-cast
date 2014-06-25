@@ -10,4 +10,4 @@ This a demo application shows how to send number sorted from an Android device t
 
 ## References
 * Cast APIs: http://developers.google.com/cast/docs
-* project HelloText-Android: https://github.com/googlecast/CastHelloText-android
+* Project HelloText-Android: https://github.com/googlecast/CastHelloText-android
